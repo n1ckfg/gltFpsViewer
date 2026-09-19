@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 
 let camera, scene, renderer, controls, gridHelper;
 
@@ -88,6 +89,9 @@ function init() {
             case 'ShiftLeft':
             case 'ShiftRight':
                 isRunning = true;
+                break;
+            case 'KeyO':
+                exportScene();
                 break;
         }
     };
@@ -287,4 +291,29 @@ function animate() {
     prevTime = time;
 
     renderer.render( scene, camera );
+}
+
+function exportScene() {
+    const exporter = new GLTFExporter();
+    exporter.parse(
+        scene,
+        function ( gltf ) {
+            const blob = new Blob( [ gltf ], { type: 'application/octet-stream' } );
+            const url = URL.createObjectURL( blob );
+            const link = document.createElement( 'a' );
+            link.style.display = 'none';
+            link.href = url;
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            link.download = `scene_${timestamp}.glb`;
+            document.body.appendChild( link );
+            link.click();
+            document.body.removeChild( link );
+            URL.revokeObjectURL( url );
+        },
+        function ( error ) {
+            console.error( 'An error happened during parsing', error );
+            alert('Error exporting scene');
+        },
+        { binary: true }
+    );
 }
