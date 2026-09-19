@@ -10,6 +10,7 @@ let moveLeft = false;
 let moveRight = false;
 let moveUp = false;
 let moveDown = false;
+let isRunning = false;
 
 let prevTime = performance.now();
 const velocity = new THREE.Vector3();
@@ -84,6 +85,10 @@ function init() {
             case 'KeyQ':
                 moveUp = true;
                 break;
+            case 'ShiftLeft':
+            case 'ShiftRight':
+                isRunning = true;
+                break;
         }
     };
 
@@ -110,6 +115,10 @@ function init() {
                 break;
             case 'KeyQ':
                 moveUp = false;
+                break;
+            case 'ShiftLeft':
+            case 'ShiftRight':
+                isRunning = false;
                 break;
         }
     };
@@ -264,7 +273,7 @@ function animate() {
         direction.y = Number( moveUp ) - Number( moveDown );
         direction.normalize(); // this ensures consistent movements in all directions
 
-        const speed = 25.0; // Units per second
+        const speed = isRunning ? 50.0 : 25.0; // Units per second
 
         if ( moveForward || moveBackward ) velocity.z -= direction.z * speed * delta;
         if ( moveLeft || moveRight ) velocity.x -= direction.x * speed * delta;
