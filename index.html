@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GLTF FPS Viewer</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="instructions">
+        <p style="font-size:36px">
+            Click to play
+        </p>
+        <p>
+            Move: WASD<br/>
+            Up/Down: E/Q<br/>
+            Look: MOUSE<br/>
+            Drag and Drop a .gltf or .glb file (and its associated .bin/textures) to load it.
+        </p>
+    </div>
+    
+    <!-- Use import maps to resolve three.js dependencies -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script type="module" src="main.js"></script>
+</body>
+</html>
