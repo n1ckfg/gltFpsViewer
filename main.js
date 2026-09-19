@@ -15,7 +15,7 @@ let prevTime = performance.now();
 const velocity = new THREE.Vector3();
 const direction = new THREE.Vector3();
 
-let currentModel = null;
+let loadedModels = [];
 
 init();
 animate();
@@ -175,12 +175,52 @@ function init() {
             objectURLs.push(rootUrl);
 
             loader.load(rootUrl, (gltf) => {
-                if (currentModel) {
-                    scene.remove(currentModel);
+                if (loadedModels.length === 0) {
+                    scene.add(gltf.scene);
+                    loadedModels.push(gltf.scene);
+                    if (gridHelper) gridHelper.visible = false;
+                } else {
+                    const newModel = gltf.scene;
+                    const box = new THREE.Box3().setFromObject(newModel);
+                    
+                    const rayDir = new THREE.Vector3();
+                    camera.getWorldDirection(rayDir);
+                    
+                    let t = 2.0;
+                    const step = 0.5;
+                    const maxT = 1000.0;
+                    let placed = false;
+                    
+                    const existingBoxes = loadedModels.map(m => new THREE.Box3().setFromObject(m));
+                    
+                    while (t < maxT) {
+                        const P = camera.position.clone().add(rayDir.clone().multiplyScalar(t));
+                        const testBox = box.clone().translate(P);
+                        
+                        let intersects = false;
+                        for (const eBox of existingBoxes) {
+                            if (testBox.intersectsBox(eBox)) {
+                                intersects = true;
+                                break;
+                            }
+                        }
+                        
+                        if (!intersects) {
+                            newModel.position.copy(P);
+                            placed = true;
+                            break;
+                        }
+                        
+                        t += step;
+                    }
+                    
+                    if (!placed) {
+                        newModel.position.copy(camera.position.clone().add(rayDir.clone().multiplyScalar(5)));
+                    }
+                    
+                    scene.add(newModel);
+                    loadedModels.push(newModel);
                 }
-                currentModel = gltf.scene;
-                scene.add(currentModel);
-                if (gridHelper) gridHelper.visible = false;
                 console.log("Model loaded successfully");
                 
                 objectURLs.forEach(url => URL.revokeObjectURL(url));
