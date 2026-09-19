@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
 
-let camera, scene, renderer, controls, gridHelper;
+let camera, scene, renderer, controls, gridHelper, transformControl;
 
 let moveForward = false;
 let moveBackward = false;
@@ -48,9 +49,47 @@ function init() {
 
     const instructions = document.getElementById( 'instructions' );
 
-    instructions.addEventListener( 'click', function () {
+    transformControl = new TransformControls(camera, renderer.domElement);
+    transformControl.addEventListener('dragging-changed', function (event) {
+        // Prevent pointer lock while dragging transform controls
+    });
+    scene.add(transformControl);
+
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    document.addEventListener('pointerdown', (event) => {
+        if (controls.isLocked) return;
+
+        if (transformControl.dragging || transformControl.axis !== null) {
+            return;
+        }
+
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(event.clientY / window.innerHeight) * 2 - 1; // wait, +1 for ThreeJS standard
+
+        // Let's fix Y coordinate mapping correctly
+        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+        raycaster.setFromCamera(mouse, camera);
+
+        const intersects = raycaster.intersectObjects(loadedModels, true);
+
+        if (intersects.length > 0) {
+            let object = intersects[0].object;
+            while (object.parent && !loadedModels.includes(object)) {
+                object = object.parent;
+            }
+            if (loadedModels.includes(object)) {
+                transformControl.attach(object);
+                return;
+            }
+        }
+        
+        // If clicking empty space, detach transform control and lock pointer
+        transformControl.detach();
         controls.lock();
-    } );
+    });
 
     controls.addEventListener( 'lock', function () {
         instructions.style.display = 'none';
@@ -92,6 +131,15 @@ function init() {
                 break;
             case 'KeyO':
                 exportScene();
+                break;
+            case 'Digit1':
+                if (transformControl) transformControl.setMode('translate');
+                break;
+            case 'Digit2':
+                if (transformControl) transformControl.setMode('rotate');
+                break;
+            case 'Digit3':
+                if (transformControl) transformControl.setMode('scale');
                 break;
         }
     };
