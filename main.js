@@ -25,7 +25,9 @@ animate();
 
 function init() {
     scene = new THREE.Scene();
-    scene.background = new THREE.Color( 0x87ceeb ); // Sky blue
+    //scene.background = new THREE.Color( 0x000000 );
+    //scene.fog = new THREE.Fog( 0x000000, 0, 750 );
+    scene.background = new THREE.Color( 0x87ceeb );
     scene.fog = new THREE.Fog( 0x87ceeb, 0, 750 );
 
     const light = new THREE.HemisphereLight( 0xeeeeff, 0x777788, 2.5 );
