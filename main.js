@@ -19,6 +19,8 @@ const velocity = new THREE.Vector3();
 const direction = new THREE.Vector3();
 
 let loadedModels = [];
+let selectedNode = null; // Currently selected node for scene graph navigation
+let selectionHelper = null; // BoxHelper for visual highlight
 
 init();
 animate();
@@ -79,16 +81,21 @@ function init() {
 
         if (intersects.length > 0) {
             let object = intersects[0].object;
-            while (object.parent && !loadedModels.includes(object)) {
-                object = object.parent;
+            // Select the exact node hit for scene graph navigation
+            selectNode(object);
+            // But attach transform controls to the top-level loaded model
+            let modelRoot = object;
+            while (modelRoot.parent && !loadedModels.includes(modelRoot)) {
+                modelRoot = modelRoot.parent;
             }
-            if (loadedModels.includes(object)) {
-                transformControl.attach(object);
+            if (loadedModels.includes(modelRoot)) {
+                transformControl.attach(modelRoot);
                 return;
             }
         }
         
         // If clicking empty space, detach transform control and lock pointer
+        selectNode(null);
         transformControl.detach();
         controls.lock();
     });
@@ -104,6 +111,24 @@ function init() {
     scene.add( controls.getObject() );
 
     const onKeyDown = function ( event ) {
+        // Arrow keys: scene graph navigation (only when pointer is unlocked)
+        if ( !controls.isLocked ) {
+            switch ( event.code ) {
+                case 'ArrowUp':
+                    navigateSceneGraph( 'parent' );
+                    return;
+                case 'ArrowDown':
+                    navigateSceneGraph( 'child' );
+                    return;
+                case 'ArrowLeft':
+                    navigateSceneGraph( 'prevSibling' );
+                    return;
+                case 'ArrowRight':
+                    navigateSceneGraph( 'nextSibling' );
+                    return;
+            }
+        }
+
         switch ( event.code ) {
             case 'ArrowUp':
             case 'KeyW':
@@ -340,7 +365,104 @@ function animate() {
 
     prevTime = time;
 
+    if ( selectionHelper ) selectionHelper.update();
+
     renderer.render( scene, camera );
+}
+
+
+function selectNode( node ) {
+    // Remove previous highlight
+    if ( selectionHelper ) {
+        scene.remove( selectionHelper );
+        selectionHelper.dispose();
+        selectionHelper = null;
+    }
+
+    selectedNode = node;
+
+    if ( !node ) {
+        console.log( 'Scene graph: deselected' );
+        return;
+    }
+
+    // Add a wireframe bounding box highlight
+    selectionHelper = new THREE.BoxHelper( node, 0x00ff00 );
+    scene.add( selectionHelper );
+
+    const nodeName = node.name || '(unnamed)';
+    const nodeType = node.type;
+    const childCount = node.children ? node.children.length : 0;
+    console.log( `Scene graph: selected "${nodeName}" [${nodeType}] — ${childCount} children` );
+
+    // Attach transform controls to this node
+    transformControl.attach( node );
+}
+
+function navigateSceneGraph( direction ) {
+    // If nothing selected, start from the first loaded model root
+    if ( !selectedNode ) {
+        if ( loadedModels.length > 0 ) {
+            selectNode( loadedModels[0] );
+        }
+        return;
+    }
+
+    const node = selectedNode;
+
+    switch ( direction ) {
+        case 'parent': {
+            if ( node.parent && node.parent !== scene ) {
+                selectNode( node.parent );
+            } else {
+                console.log( 'Scene graph: already at root' );
+            }
+            break;
+        }
+        case 'child': {
+            // Filter out non-user children (helpers, etc.)
+            const userChildren = node.children.filter( c =>
+                !(c instanceof THREE.BoxHelper) &&
+                !(c.isTransformControlsRoot) &&
+                c !== selectionHelper
+            );
+            if ( userChildren.length > 0 ) {
+                selectNode( userChildren[0] );
+            } else {
+                console.log( 'Scene graph: no children' );
+            }
+            break;
+        }
+        case 'prevSibling':
+        case 'nextSibling': {
+            if ( !node.parent ) {
+                console.log( 'Scene graph: no parent, cannot navigate siblings' );
+                return;
+            }
+            const siblings = node.parent.children.filter( c =>
+                !(c instanceof THREE.BoxHelper) &&
+                !(c.isTransformControlsRoot) &&
+                c !== selectionHelper
+            );
+            const idx = siblings.indexOf( node );
+            if ( idx === -1 ) return;
+
+            if ( direction === 'prevSibling' ) {
+                if ( idx > 0 ) {
+                    selectNode( siblings[idx - 1] );
+                } else {
+                    console.log( 'Scene graph: no previous sibling' );
+                }
+            } else {
+                if ( idx < siblings.length - 1 ) {
+                    selectNode( siblings[idx + 1] );
+                } else {
+                    console.log( 'Scene graph: no next sibling' );
+                }
+            }
+            break;
+        }
+    }
 }
 
 function exportScene() {
