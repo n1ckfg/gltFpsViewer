@@ -15,6 +15,7 @@
             Run: SHIFT<br/>
             Look: MOUSE<br/>
             Export Scene: O<br/>
+            Record Video: SPACE<br/>
             Pause: TAB<br/>
             <br/>
             When paused...<br/>
@@ -26,7 +27,12 @@
             Backspace: delete selected object<br/>
         </p>
     </div>
-    
+
+    <div id="recorder-hud">
+        <div id="countdown"></div>
+        <div id="rec-indicator"><span id="rec-dot"></span>REC <span id="rec-time">0:00</span></div>
+    </div>
+
     <!-- Use import maps to resolve three.js dependencies -->
     <script type="importmap">
         {

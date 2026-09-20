@@ -20,3 +20,53 @@ body {
     z-index: 10;
     pointer-events: none;
 }
+
+#recorder-hud {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 20;
+    pointer-events: none;
+    color: #fff;
+}
+
+#countdown {
+    display: none;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 160px;
+    font-weight: bold;
+    line-height: 1;
+    text-shadow: 0 0 24px rgba(0,0,0,0.6);
+}
+
+#rec-indicator {
+    display: none;
+    position: absolute;
+    top: 20px;
+    right: 24px;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 4px;
+    background-color: rgba(0,0,0,0.5);
+    font-size: 16px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 1px;
+}
+
+#rec-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background-color: #ff3b30;
+    animation: rec-blink 1s steps(1, end) infinite;
+}
+
+@keyframes rec-blink {
+    50% { opacity: 0; }
+}

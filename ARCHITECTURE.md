@@ -7,6 +7,7 @@ This document provides a high-level overview of the `gltFpsViewer` application's
 - **`index.html`**: The main entry point. Sets up the full-screen structure, the "Click to play" instruction overlay, and utilizes an [Import Map](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/script/type/importmap) to resolve `three` and `three/addons/*` directly from unpkg.
 - **`style.css`**: Contains minimalistic styling to ensure the canvas fills the window and the instruction overlay is centered with proper `pointer-events` handling.
 - **`main.js`**: Contains the entirety of the application logic. 
+- **`recorder.js`**: A standalone `Recorder` class wrapping the `MediaRecorder` API, adapted from the `MonitorModule` in LICHEN.
 - **`run.bat` / `run.command`**: Helper scripts to easily spawn a local HTTP server (`http-server`) and open the application in a browser, bypassing local CORS restrictions.
 
 ## Core Systems (`main.js`)
@@ -40,7 +41,15 @@ To bypass standard browser security restrictions regarding local file access, th
 - Creates a custom `THREE.LoadingManager` with a `setURLModifier`. When the `GLTFLoader` attempts to fetch relative assets (like `.bin` or `.png` textures), the manager maps the requested filename to the physical file dropped by the user, dynamically generating a `Blob URL` (`URL.createObjectURL`).
 - **Dynamic Placement**: When subsequent models are dropped, the application performs a spatial check. It projects a ray forward from the camera and steps iteratively until it finds a position where the new model's bounding box does not intersect with any previously loaded models' bounding boxes.
 
-### 4. Scene Export
+### 4. Video Recording (`recorder.js`)
+The `Recorder` class captures the viewport to a downloadable video file, independent of Three.js.
+- **Controls**: `Space` arms a 3-second countdown (rendered as a large centred number in the `#recorder-hud` overlay), after which capture begins. `Space` again stops the recording and triggers the download; pressing it *during* the countdown cancels instead. The hotkey works in both FPS Flight and Object Manipulation modes.
+- **Capture Path**: Rather than recording the WebGL canvas directly, each frame is blitted into a fixed-size offscreen 2D canvas immediately after `renderer.render()` (while the drawing buffer is still valid, so `preserveDrawingBuffer` is not required). `MediaRecorder` captures that canvas via `captureStream(30)`. Locking the output resolution at the start of a take means a mid-recording window resize letterboxes the frame rather than breaking the stream.
+- **Resolution**: Matches the renderer's drawing buffer, scaled down to fit within 1920x1080 and rounded to even dimensions for H.264 compatibility.
+- **Encoding**: MIME types are probed in order of preference (MP4/H.264 first, then WebM/VP9, VP8) so the best container the browser supports is used, at 20 Mbps. Chunks are collected every second and, on stop, concatenated into a Blob and downloaded as a timestamped `capture_*.mp4` (or `.webm`).
+- **HUD**: While recording, a blinking red `REC` indicator with elapsed time is shown in the top-right corner. The HUD is plain DOM, so it never appears in the captured video.
+
+### 5. Scene Export
 - Users can press `O` to trigger an export.
 - The application uses `GLTFExporter` to parse the entire current scene graph.
 - It is configured to output in binary mode (`binary: true`), generating an ArrayBuffer that is converted into a Blob and programmatically downloaded as a timestamped `.glb` file.

@@ -3,6 +3,7 @@ import { PointerLockControls } from 'three/addons/controls/PointerLockControls.j
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import { Recorder } from './recorder.js';
 
 let camera, scene, renderer, controls, gridHelper, transformControl;
 
@@ -17,6 +18,8 @@ let isRunning = false;
 let prevTime = performance.now();
 const velocity = new THREE.Vector3();
 const direction = new THREE.Vector3();
+
+let recorder, countdownEl, recIndicatorEl, recTimeEl;
 
 let loadedModels = [];
 let selectedNode = null; // Currently selected node for scene graph navigation
@@ -50,6 +53,15 @@ function init() {
     document.body.appendChild( renderer.domElement );
 
     controls = new PointerLockControls( camera, document.body );
+
+    countdownEl = document.getElementById( 'countdown' );
+    recIndicatorEl = document.getElementById( 'rec-indicator' );
+    recTimeEl = document.getElementById( 'rec-time' );
+
+    recorder = new Recorder( renderer.domElement, {
+        onStateChange: updateRecorderHud
+    } );
+    updateRecorderHud( recorder.state );
 
     const instructions = document.getElementById( 'instructions' );
 
@@ -111,6 +123,13 @@ function init() {
     scene.add( controls.getObject() );
 
     const onKeyDown = function ( event ) {
+        // Space toggles recording in both flight and manipulation modes
+        if ( event.code === 'Space' ) {
+            event.preventDefault();
+            if ( !event.repeat ) recorder.toggle();
+            return;
+        }
+
         // Arrow keys: scene graph navigation (only when pointer is unlocked)
         if ( !controls.isLocked ) {
             switch ( event.code ) {
@@ -372,8 +391,29 @@ function animate() {
     if ( selectionHelper ) selectionHelper.update();
 
     renderer.render( scene, camera );
+
+    recorder.update();
+    if ( recorder.isRecording() ) recTimeEl.textContent = formatDuration( recorder.elapsedSeconds );
 }
 
+
+function updateRecorderHud( state ) {
+    const countingDown = state === 'countdown';
+    const recording = state === 'recording';
+
+    countdownEl.style.display = countingDown ? 'block' : 'none';
+    recIndicatorEl.style.display = recording ? 'flex' : 'none';
+
+    if ( countingDown ) countdownEl.textContent = recorder.countdownRemaining;
+    if ( recording ) recTimeEl.textContent = formatDuration( 0 );
+}
+
+function formatDuration( seconds ) {
+    const total = Math.floor( seconds );
+    const mins = Math.floor( total / 60 );
+    const secs = total % 60;
+    return `${mins}:${String( secs ).padStart( 2, '0' )}`;
+}
 
 function selectNode( node ) {
     // Remove previous highlight
