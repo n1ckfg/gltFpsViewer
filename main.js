@@ -126,6 +126,10 @@ function init() {
                 case 'ArrowRight':
                     navigateSceneGraph( 'nextSibling' );
                     return;
+                case 'Backspace':
+                case 'Delete':
+                    deleteSelectedNode();
+                    return;
             }
         }
 
@@ -488,4 +492,53 @@ function exportScene() {
         },
         { binary: true }
     );
+}
+
+function deleteSelectedNode() {
+    if ( !selectedNode ) return;
+    
+    // Only allow deleting loaded models or their children
+    let modelRoot = selectedNode;
+    while (modelRoot.parent && !loadedModels.includes(modelRoot)) {
+        modelRoot = modelRoot.parent;
+    }
+    
+    if ( !loadedModels.includes(modelRoot) ) {
+        console.log("Cannot delete non-model objects.");
+        return; 
+    }
+
+    const nodeName = selectedNode.name || 'this object';
+    if ( confirm(`Are you sure you want to delete "${nodeName}"?`) ) {
+        // Detach transform controls
+        transformControl.detach();
+        
+        // Remove from parent
+        if ( selectedNode.parent ) {
+            selectedNode.parent.remove( selectedNode );
+        }
+        
+        // If it was a root model, remove from loadedModels array
+        const index = loadedModels.indexOf( selectedNode );
+        if ( index !== -1 ) {
+            loadedModels.splice( index, 1 );
+        }
+
+        // Clean up resources (geometry, materials) recursively
+        selectedNode.traverse((child) => {
+            if (child.isMesh) {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach(m => m.dispose());
+                    } else {
+                        child.material.dispose();
+                    }
+                }
+            }
+        });
+        
+        // Clear selection
+        selectNode( null );
+    }
 }
