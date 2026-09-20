@@ -14,7 +14,7 @@ This document provides a high-level overview of the `gltFpsViewer` application's
 The application logic is driven by standard Three.js paradigms, structured around an `init()` setup function and a recursive `animate()` render loop.
 
 ### 1. Rendering & Scene Setup
-- **Scene**: A basic `THREE.Scene` with a sky-blue background and fog to provide depth. Includes a simple ground plane and a `GridHelper` (which hides once the first model is loaded).
+- **Scene**: A basic `THREE.Scene` with a sky-blue background and fog to provide depth. Includes a `GridHelper` (which hides once the first model is loaded).
 - **Lighting**: A combination of `HemisphereLight` (for soft ambient illumination) and `DirectionalLight` (for directional shading).
 - **Renderer**: `WebGLRenderer` configured for full-screen anti-aliased output.
 
@@ -30,6 +30,7 @@ The application features a hybrid control scheme that switches between "FPS Flig
   - A Raycaster fires on `pointerdown` to detect if the user clicked on a loaded model. If so, the exact mesh node is highlighted with a green `BoxHelper`, while the `TransformControls` gizmo attaches to the top-level loaded model (root) by default.
   - **Scene Graph Navigation**: While unlocked, users can use the `Arrow keys` to traverse the model's internal scene graph (`Up`/`Down` for parent/child, `Left`/`Right` for siblings). Upon navigation, the `TransformControls` gizmo attaches directly to the newly selected sub-node, enabling precise manipulation of individual parts.
   - Hotkeys `1`, `2`, and `3` switch the gizmo between `translate`, `rotate`, and `scale` modes respectively.
+  - **Node Deletion**: Pressing `Backspace` or `Delete` prompts for confirmation and removes the selected node (and its children) from the scene, properly disposing of associated resources.
   - Clicking empty space deselects the current node, detaches the gizmo, and re-enters FPS Flight Mode.
 
 ### 3. Drag-and-Drop Loader
