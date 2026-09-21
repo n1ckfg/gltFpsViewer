@@ -42,6 +42,7 @@ To bypass standard browser security restrictions regarding local file access, th
 - Listens for `drop` events on the document.
 - Identifies the root `.gltf` or `.glb` file.
 - Creates a custom `THREE.LoadingManager` with a `setURLModifier`. When the `GLTFLoader` attempts to fetch relative assets (like `.bin` or `.png` textures), the manager maps the requested filename to the physical file dropped by the user, dynamically generating a `Blob URL` (`URL.createObjectURL`).
+- **Viewer State Restore**: If the dropped file carries a `gltFpsViewer` block in its scene `extras` (i.e. it was saved by this viewer), the background colour, levels and player pose are restored from it. This only happens when dropping into an empty scene — dropping a second model logs the block and ignores it rather than yanking the view. Every field is validated on the way in, since the file may be hand-edited or written by an older build.
 - **Dynamic Placement**: When subsequent models are dropped, the application performs a spatial check. It projects a ray forward from the camera and steps iteratively until it finds a position where the new model's bounding box does not intersect with any previously loaded models' bounding boxes.
 
 ### 4. Video Recording (`recorder.js`)
@@ -63,3 +64,14 @@ Pressing `C` toggles a panel for adjusting the look of the viewport. It generate
 - Users can press `O` to trigger an export.
 - The application uses `GLTFExporter` to parse the entire current scene graph.
 - It is configured to output in binary mode (`binary: true`), generating an ArrayBuffer that is converted into a Blob and programmatically downloaded as a timestamped `.glb` file.
+- **Viewer State**: Immediately before parsing, a snapshot of the state that isn't part of the scene graph is written to `scene.userData.gltFpsViewer`, which `GLTFExporter.processScene()` serializes into `scenes[0].extras`:
+
+```json
+{ "version": 1,
+  "background": "#87ceeb",
+  "levels": { "blackPoint": 0, "whitePoint": 1, "gamma": 1 },
+  "player": { "position": [0,2,5], "quaternion": [0,0,0,1], "fov": 75 } }
+```
+
+  `extras` is the spec-sanctioned place for application data, so the file stays valid glTF and other tools simply ignore the block. The drag-and-drop loader reads it back (see above), making a `.glb` a complete save file for the session rather than just its geometry.
+- **Camera Node**: `controls.getObject()` (the camera itself) lives in the scene, so the exporter would otherwise emit it as a glTF `camera` node — and because a loaded model keeps that node, a save → load → save cycle would stack up one camera per round trip. The camera is therefore hidden for the duration of the parse (the exporter's `onlyVisible` option skips it) and shown again in the completion callbacks; `visible` has no effect on a camera's own rendering, so nothing changes on screen. The pose travels in `extras` instead.

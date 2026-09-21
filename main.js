@@ -29,6 +29,9 @@ const direction = new THREE.Vector3();
 let recorder, countdownEl, recIndicatorEl, recTimeEl;
 let palette;
 
+// Key under which viewer state is stored in the exported scene's extras
+const VIEWER_STATE_KEY = 'gltFpsViewer';
+
 let loadedModels = [];
 let selectedNode = null; // Currently selected node for scene graph navigation
 let selectionHelper = null; // BoxHelper for visual highlight
@@ -324,7 +327,9 @@ function init() {
             objectURLs.push(rootUrl);
 
             loader.load(rootUrl, (gltf) => {
-                if (loadedModels.length === 0) {
+                const isFirstModel = loadedModels.length === 0;
+
+                if (isFirstModel) {
                     scene.add(gltf.scene);
                     loadedModels.push(gltf.scene);
                     if (gridHelper) gridHelper.visible = false;
@@ -371,7 +376,16 @@ function init() {
                     loadedModels.push(newModel);
                 }
                 console.log("Model loaded successfully");
-                
+
+                // A .glb saved by this viewer carries background/levels/pose in
+                // its scene extras. Only honour it when opening into an empty
+                // scene, so dropping a second model doesn't yank the view.
+                const state = gltf.scene.userData ? gltf.scene.userData[ VIEWER_STATE_KEY ] : null;
+                if ( state ) {
+                    if ( isFirstModel ) applyViewerState( state );
+                    else console.log( 'Ignoring viewer state in .glb (scene already has models)' );
+                }
+
                 objectURLs.forEach(url => URL.revokeObjectURL(url));
             }, undefined, (error) => {
                 console.error(error);
@@ -560,11 +574,80 @@ function navigateSceneGraph( direction ) {
     }
 }
 
+/**
+ * Snapshot of everything the viewer owns that isn't part of the scene graph:
+ * the background colour, the levels adjustment and where the player is standing.
+ */
+function captureViewerState() {
+    return {
+        version: 1,
+        background: palette.background,
+        levels: { ...palette.levels },
+        player: {
+            position: camera.position.toArray(),
+            quaternion: camera.quaternion.toArray(),
+            fov: camera.fov
+        }
+    };
+}
+
+/**
+ * Restore a snapshot read back out of a .glb. Every field is optional and
+ * validated — the file may have been written by hand or by an older build.
+ */
+function applyViewerState( state ) {
+    if ( !state || typeof state !== 'object' ) return false;
+
+    if ( typeof state.background === 'string' && /^#[0-9a-f]{6}$/i.test( state.background ) ) {
+        palette.setBackground( state.background.toLowerCase() );
+    }
+
+    if ( state.levels && typeof state.levels === 'object' ) {
+        const levels = {};
+        for ( const key of [ 'blackPoint', 'whitePoint', 'gamma' ] ) {
+            if ( Number.isFinite( state.levels[ key ] ) ) levels[ key ] = state.levels[ key ];
+        }
+        palette.setLevels( levels );
+    }
+
+    const player = state.player;
+    if ( player && typeof player === 'object' ) {
+        if ( Array.isArray( player.position ) && player.position.length === 3 ) {
+            camera.position.fromArray( player.position );
+        }
+        if ( Array.isArray( player.quaternion ) && player.quaternion.length === 4 ) {
+            // PointerLockControls re-reads the camera quaternion on each mouse
+            // move, so it picks up from the restored orientation.
+            camera.quaternion.fromArray( player.quaternion );
+        }
+        if ( Number.isFinite( player.fov ) ) {
+            camera.fov = player.fov;
+            camera.updateProjectionMatrix();
+        }
+    }
+
+    console.log( 'Viewer state restored from .glb' );
+    return true;
+}
+
 function exportScene() {
     const exporter = new GLTFExporter();
+
+    // Written to the exported scene's `extras`
+    scene.userData[ VIEWER_STATE_KEY ] = captureViewerState();
+
+    // The player camera is part of the scene graph (PointerLockControls drives
+    // it in place), so the exporter would emit it as a glTF camera node — and
+    // since a loaded model keeps that node, a save -> load -> save cycle stacks
+    // up one camera per round trip. The pose travels in `extras` instead, so
+    // hide the camera and let the exporter's `onlyVisible` option skip it.
+    camera.visible = false;
+    const showCamera = () => { camera.visible = true; };
+
     exporter.parse(
         scene,
         function ( gltf ) {
+            showCamera();
             const blob = new Blob( [ gltf ], { type: 'application/octet-stream' } );
             const url = URL.createObjectURL( blob );
             const link = document.createElement( 'a' );
@@ -578,6 +661,7 @@ function exportScene() {
             URL.revokeObjectURL( url );
         },
         function ( error ) {
+            showCamera();
             console.error( 'An error happened during parsing', error );
             alert('Error exporting scene');
         },
