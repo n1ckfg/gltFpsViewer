@@ -142,10 +142,14 @@ function init() {
     controls.addEventListener( 'lock', function () {
         instructions.style.display = 'none';
         palette.close();
+        // PointerLockControls dispatches this event *before* it assigns
+        // isLocked, so the new state has to be passed in explicitly.
+        updateWidgetVisibility( true );
     } );
 
     controls.addEventListener( 'unlock', function () {
         instructions.style.display = 'flex';
+        updateWidgetVisibility( false );
     } );
 
     scene.add( controls.getObject() );
@@ -153,6 +157,16 @@ function init() {
     const onKeyDown = function ( event ) {
         if ( event.code === 'Escape' && palette.isOpen ) {
             palette.close();
+            return;
+        }
+
+        // TAB toggles menu mode: it dismisses the menu and returns to flight,
+        // or pauses out of flight. Handled ahead of the panel guard below so it
+        // works even while one of the panel's controls has focus.
+        if ( event.code === 'Tab' ) {
+            event.preventDefault(); // don't let the browser walk focus instead
+            if ( controls.isLocked ) controls.unlock();
+            else controls.lock();
             return;
         }
 
@@ -332,7 +346,7 @@ function init() {
                 if (isFirstModel) {
                     scene.add(gltf.scene);
                     loadedModels.push(gltf.scene);
-                    if (gridHelper) gridHelper.visible = false;
+                    updateWidgetVisibility();
                 } else {
                     const newModel = gltf.scene;
                     const box = new THREE.Box3().setFromObject(newModel);
@@ -462,6 +476,21 @@ function setLevels( levels ) {
     levelsPass.uniforms[ 'gamma' ].value = levels.gamma;
 }
 
+/**
+ * Viewer chrome — the grid, the transform gizmo and the selection bounding box
+ * — is only shown alongside the menu. Flight mode gets an unobstructed view, so
+ * nothing captured during it has widgets drawn over it. The recording HUD is
+ * deliberately exempt: it is the only signal that a take is running, and being
+ * plain DOM it never reaches the captured video anyway.
+ */
+function updateWidgetVisibility( locked = controls.isLocked ) {
+    const showWidgets = !locked;
+
+    if ( gridHelper ) gridHelper.visible = showWidgets && loadedModels.length === 0;
+    if ( transformControl ) transformControl.visible = showWidgets && transformControl.object !== undefined;
+    if ( selectionHelper ) selectionHelper.visible = showWidgets;
+}
+
 function updateRecorderHud( state ) {
     const countingDown = state === 'countdown';
     const recording = state === 'recording';
@@ -506,6 +535,9 @@ function selectNode( node ) {
 
     // Attach transform controls to this node
     transformControl.attach( node );
+
+    // attach() forces the gizmo visible; keep it consistent with the mode
+    updateWidgetVisibility();
 }
 
 function navigateSceneGraph( direction ) {

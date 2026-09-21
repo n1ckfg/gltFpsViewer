@@ -25,6 +25,8 @@ The application logic is driven by standard Three.js paradigms, structured aroun
 ### 2. Camera & Movement Controls
 The application features a hybrid control scheme that switches between "FPS Flight" and "Object Manipulation" modes based on the Pointer Lock API.
 
+- **Mode Switching**: `Tab` toggles between the two. With the menu up it requests pointer lock and returns to flight; in flight it releases the lock and pauses. It is handled before the palette's key guard, so it works even while one of that panel's controls has focus, and it calls `preventDefault()` so the browser doesn't walk focus instead. Clicking empty space also locks, and `Esc` unlocks (browser behaviour). Note that Chrome throttles re-locking for a moment after an unlock, so a very fast `Tab`-`Tab` may need a second press.
+- **Widget Visibility**: `updateWidgetVisibility()` hides everything that is viewer chrome rather than scene content whenever the pointer is locked — the `GridHelper`, the `TransformControls` gizmo and the green selection `BoxHelper` — so flight mode (and anything captured during it) is unobstructed. Selection state is kept, not cleared: the gizmo and box reappear on the same node when the menu comes back. Note that `PointerLockControls` dispatches its `lock`/`unlock` events *before* assigning `isLocked`, so those two handlers pass the new state in explicitly rather than reading the stale flag.
 - **FPS Flight Mode (Pointer Locked)**:
   - Governed by `PointerLockControls`, which binds mouse movement directly to the camera's pitch and yaw.
   - A custom velocity-based movement system listens for `W, A, S, D` (horizontal) and `Q, E` (vertical) to translate the camera.
@@ -51,7 +53,7 @@ The `Recorder` class captures the viewport to a downloadable video file, indepen
 - **Capture Path**: Rather than recording the WebGL canvas directly, each frame is blitted into a fixed-size offscreen 2D canvas immediately after `renderer.render()` (while the drawing buffer is still valid, so `preserveDrawingBuffer` is not required). `MediaRecorder` captures that canvas via `captureStream(30)`. Locking the output resolution at the start of a take means a mid-recording window resize letterboxes the frame rather than breaking the stream.
 - **Resolution**: Matches the renderer's drawing buffer, scaled down to fit within 1920x1080 and rounded to even dimensions for H.264 compatibility.
 - **Encoding**: MIME types are probed in order of preference (MP4/H.264 first, then WebM/VP9, VP8) so the best container the browser supports is used, at 20 Mbps. Chunks are collected every second and, on stop, concatenated into a Blob and downloaded as a timestamped `capture_*.mp4` (or `.webm`).
-- **HUD**: While recording, a blinking red `REC` indicator with elapsed time is shown in the top-right corner. The HUD is plain DOM, so it never appears in the captured video.
+- **HUD**: While recording, a blinking red `REC` indicator with elapsed time is shown in the top-right corner. The HUD is plain DOM, so it never appears in the captured video. It is deliberately exempt from the widget hiding described in section 2 and stays up in FPS Flight Mode, since it is the only signal that a take is running.
 
 ### 5. Colour Palette & Levels (`palette.js`, `levels.js`)
 Pressing `C` toggles a panel for adjusting the look of the viewport. It generates its own markup (the swatch grid and sliders are too repetitive to hand-write) and is styled from `style.css`.
