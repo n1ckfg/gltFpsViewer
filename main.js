@@ -3,9 +3,16 @@ import { PointerLockControls } from 'three/addons/controls/PointerLockControls.j
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { Recorder } from './recorder.js';
+import { Palette } from './palette.js';
+import { LevelsShader } from './levels.js';
 
 let camera, scene, renderer, controls, gridHelper, transformControl;
+let composer, levelsPass;
 
 let moveForward = false;
 let moveBackward = false;
@@ -20,6 +27,7 @@ const velocity = new THREE.Vector3();
 const direction = new THREE.Vector3();
 
 let recorder, countdownEl, recIndicatorEl, recTimeEl;
+let palette;
 
 let loadedModels = [];
 let selectedNode = null; // Currently selected node for scene graph navigation
@@ -52,6 +60,21 @@ function init() {
     renderer.setSize( window.innerWidth, window.innerHeight );
     document.body.appendChild( renderer.domElement );
 
+    // Post-processing: the levels pass runs last, after OutputPass has encoded
+    // the frame to sRGB, so it adjusts display values rather than linear ones.
+    composer = new EffectComposer( renderer );
+    composer.setPixelRatio( window.devicePixelRatio );
+    composer.setSize( window.innerWidth, window.innerHeight );
+    composer.addPass( new RenderPass( scene, camera ) );
+    composer.addPass( new OutputPass() );
+    levelsPass = new ShaderPass( LevelsShader );
+    composer.addPass( levelsPass );
+
+    palette = new Palette( {
+        onBackgroundChange: setBackgroundColor,
+        onLevelsChange: setLevels
+    } );
+
     controls = new PointerLockControls( camera, document.body );
 
     countdownEl = document.getElementById( 'countdown' );
@@ -75,6 +98,7 @@ function init() {
     const mouse = new THREE.Vector2();
 
     document.addEventListener('pointerdown', (event) => {
+        if (palette.contains(event.target)) return;
         if (controls.isLocked) return;
 
         if (transformControl.dragging || transformControl.axis !== null) {
@@ -114,6 +138,7 @@ function init() {
 
     controls.addEventListener( 'lock', function () {
         instructions.style.display = 'none';
+        palette.close();
     } );
 
     controls.addEventListener( 'unlock', function () {
@@ -123,6 +148,14 @@ function init() {
     scene.add( controls.getObject() );
 
     const onKeyDown = function ( event ) {
+        if ( event.code === 'Escape' && palette.isOpen ) {
+            palette.close();
+            return;
+        }
+
+        // Let the panel's own controls handle their keys (arrows nudge sliders)
+        if ( palette.contains( event.target ) && event.code !== 'KeyC' ) return;
+
         // Space toggles recording in both flight and manipulation modes
         if ( event.code === 'Space' ) {
             event.preventDefault();
@@ -181,6 +214,11 @@ function init() {
                 break;
             case 'KeyO':
                 exportScene();
+                break;
+            case 'KeyC':
+                palette.toggle();
+                // The panel needs the cursor back
+                if ( palette.isOpen && controls.isLocked ) controls.unlock();
                 break;
             case 'Digit1':
                 if (transformControl) transformControl.setMode('translate');
@@ -356,6 +394,7 @@ function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize( window.innerWidth, window.innerHeight );
+    composer.setSize( window.innerWidth, window.innerHeight );
 }
 
 function animate() {
@@ -390,12 +429,24 @@ function animate() {
 
     if ( selectionHelper ) selectionHelper.update();
 
-    renderer.render( scene, camera );
+    composer.render();
 
     recorder.update();
     if ( recorder.isRecording() ) recTimeEl.textContent = formatDuration( recorder.elapsedSeconds );
 }
 
+
+function setBackgroundColor( hex ) {
+    const color = new THREE.Color( hex );
+    scene.background = color;
+    if ( scene.fog ) scene.fog.color.copy( color );
+}
+
+function setLevels( levels ) {
+    levelsPass.uniforms[ 'blackPoint' ].value = levels.blackPoint;
+    levelsPass.uniforms[ 'whitePoint' ].value = levels.whitePoint;
+    levelsPass.uniforms[ 'gamma' ].value = levels.gamma;
+}
 
 function updateRecorderHud( state ) {
     const countingDown = state === 'countdown';

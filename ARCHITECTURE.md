@@ -8,6 +8,8 @@ This document provides a high-level overview of the `gltFpsViewer` application's
 - **`style.css`**: Contains minimalistic styling to ensure the canvas fills the window and the instruction overlay is centered with proper `pointer-events` handling.
 - **`main.js`**: Contains the entirety of the application logic. 
 - **`recorder.js`**: A standalone `Recorder` class wrapping the `MediaRecorder` API, adapted from the `MonitorModule` in LICHEN.
+- **`palette.js`**: A self-contained `Palette` widget (background swatches + levels sliders) that builds its own DOM and reports changes through callbacks.
+- **`levels.js`**: The `LevelsShader` definition used by the post-processing levels pass.
 - **`run.bat` / `run.command`**: Helper scripts to easily spawn a local HTTP server (`http-server`) and open the application in a browser, bypassing local CORS restrictions.
 
 ## Core Systems (`main.js`)
@@ -18,6 +20,7 @@ The application logic is driven by standard Three.js paradigms, structured aroun
 - **Scene**: A basic `THREE.Scene` with a sky-blue background and fog to provide depth. Includes a `GridHelper` (which hides once the first model is loaded).
 - **Lighting**: A combination of `HemisphereLight` (for soft ambient illumination) and `DirectionalLight` (for directional shading).
 - **Renderer**: `WebGLRenderer` configured for full-screen anti-aliased output.
+- **Post-processing**: The scene is drawn through an `EffectComposer` chain rather than a direct `renderer.render()` call: `RenderPass` → `OutputPass` → a `ShaderPass` running `LevelsShader`. Because the levels pass runs *after* `OutputPass` has tone-mapped and sRGB-encoded the frame, it operates on display-referred values, matching the behaviour of an image editor's Levels dialog. With neutral settings the chain is a pass-through — colours round-trip exactly.
 
 ### 2. Camera & Movement Controls
 The application features a hybrid control scheme that switches between "FPS Flight" and "Object Manipulation" modes based on the Pointer Lock API.
@@ -49,7 +52,14 @@ The `Recorder` class captures the viewport to a downloadable video file, indepen
 - **Encoding**: MIME types are probed in order of preference (MP4/H.264 first, then WebM/VP9, VP8) so the best container the browser supports is used, at 20 Mbps. Chunks are collected every second and, on stop, concatenated into a Blob and downloaded as a timestamped `capture_*.mp4` (or `.webm`).
 - **HUD**: While recording, a blinking red `REC` indicator with elapsed time is shown in the top-right corner. The HUD is plain DOM, so it never appears in the captured video.
 
-### 5. Scene Export
+### 5. Colour Palette & Levels (`palette.js`, `levels.js`)
+Pressing `C` toggles a panel for adjusting the look of the viewport. It generates its own markup (the swatch grid and sliders are too repetitive to hand-write) and is styled from `style.css`.
+- **Background**: A grid of 14 preset swatches plus a native `<input type="color">` for arbitrary values. Choosing a colour updates both `scene.background` and the fog colour, so the horizon stays consistent.
+- **Levels**: Three sliders — black point (0–1), white point (0–1) and gamma (0.2–3) — drive the uniforms of the levels pass, applying `((c - black) / (white - black)) ^ (1/gamma)`. The two endpoints are prevented from crossing: the slider being dragged wins and pushes the other one ahead of it. A `reset` button restores the defaults (sky blue, 0 / 1 / 1).
+- **Input Routing**: Because the viewer binds document-level handlers, the panel is explicitly excluded from them — `pointerdown` inside it does not raycast or grab pointer lock, and key presses on its controls (arrow keys nudging a slider) do not reach the scene-graph or movement bindings. Opening the panel while in FPS Flight Mode releases pointer lock so the cursor is usable; re-locking closes the panel.
+- **Recording**: Since the adjustment is a shader pass rather than a CSS filter, both the background colour and the levels are baked into the captured video.
+
+### 6. Scene Export
 - Users can press `O` to trigger an export.
 - The application uses `GLTFExporter` to parse the entire current scene graph.
 - It is configured to output in binary mode (`binary: true`), generating an ArrayBuffer that is converted into a Blob and programmatically downloaded as a timestamped `.glb` file.
