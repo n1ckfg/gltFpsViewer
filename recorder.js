@@ -25,12 +25,15 @@ export class Recorder {
         this.fps = options.fps ?? 30;
         this.bitrate = options.bitrate ?? 20; // Mbps
         this.countdownSeconds = options.countdownSeconds ?? 3;
+        this.preferDirectCapture = options.directCapture ?? true;
         this.onStateChange = options.onStateChange ?? ( () => {} );
 
         this.canvas = document.createElement( 'canvas' );
         this.canvas.width = this.maxWidth;
         this.canvas.height = this.maxHeight;
-        this.ctx = this.canvas.getContext( '2d' );
+        // Opaque: this canvas is never composited over anything, and dropping
+        // the alpha channel makes both the blit and the encode cheaper.
+        this.ctx = this.canvas.getContext( '2d', { alpha: false } );
 
         this._recorder = null;
         this._chunks = [];
@@ -38,6 +41,11 @@ export class Recorder {
         this._countdownTimer = null;
         this._countdownRemaining = 0;
         this._startTime = 0;
+        this._frameTrack = null;
+        this._frameInterval = 1000 / this.fps;
+        this._lastFrameTime = 0;
+        this._direct = false;
+        this._directSize = '';
     }
 
     // 'idle' | 'countdown' | 'recording'
@@ -131,7 +139,17 @@ export class Recorder {
             return false;
         }
 
-        this._matchSourceSize();
+        // Copying the renderer's canvas into the capture canvas is a GPU
+        // readback. It is only needed to scale an oversized frame down into the
+        // capture bounds — when the canvas already fits, MediaRecorder can take
+        // the WebGL canvas directly and the readback disappears entirely.
+        const src = this.sourceCanvas;
+        this._direct = this.preferDirectCapture
+            && src.width > 0 && src.height > 0
+            && src.width <= this.maxWidth
+            && src.height <= this.maxHeight;
+
+        if ( !this._direct ) this._matchSourceSize();
 
         const mimeType = MIME_TYPES.find( type => MediaRecorder.isTypeSupported( type ) );
         if ( !mimeType ) {
@@ -143,7 +161,29 @@ export class Recorder {
         this._mimeType = mimeType;
         this._chunks = [];
 
-        const stream = this.canvas.captureStream( this.fps );
+        let stream;
+        let track = null;
+
+        if ( this._direct ) {
+            stream = src.captureStream( this.fps );
+            this._directSize = `${src.width}x${src.height}`;
+        } else {
+            // Ask for frames on demand rather than letting the browser sample
+            // the canvas on its own schedule: pacing the blit ourselves means
+            // one readback per encoded frame instead of one per animation
+            // frame. Browsers without requestFrame fall back to a timed stream.
+            stream = this.canvas.captureStream( 0 );
+            track = stream.getVideoTracks()[ 0 ];
+
+            if ( !track || typeof track.requestFrame !== 'function' ) {
+                stream = this.canvas.captureStream( this.fps );
+                track = null;
+            }
+        }
+
+        this._frameTrack = track;
+        this._frameInterval = 1000 / this.fps;
+        this._lastFrameTime = 0;
 
         try {
             this._recorder = new MediaRecorder( stream, {
@@ -171,12 +211,14 @@ export class Recorder {
         };
 
         // Seed the first frame so the stream never starts on an empty canvas.
-        this.update( true );
+        if ( !this._direct ) this.update( true );
 
         this._recorder.start( 1000 ); // Collect data every second
         this._startTime = performance.now();
 
-        console.log( `Recording started (${mimeType}, ${this.canvas.width}x${this.canvas.height} @ ${this.fps}fps, ${this.bitrate} Mbps)` );
+        const size = this._direct ? this._directSize : `${this.canvas.width}x${this.canvas.height}`;
+        const path = this._direct ? 'direct' : 'scaled';
+        console.log( `Recording started (${mimeType}, ${size} @ ${this.fps}fps, ${this.bitrate} Mbps, ${path})` );
         this._emit();
         return true;
     }
@@ -203,6 +245,30 @@ export class Recorder {
         const src = this.sourceCanvas;
         if ( !src.width || !src.height ) return;
 
+        if ( this._direct ) {
+            // MediaRecorder is reading the WebGL canvas itself, so there is
+            // nothing to copy — but the stream is bound to that canvas's size.
+            const size = `${src.width}x${src.height}`;
+            if ( size !== this._directSize ) {
+                console.warn( `Canvas resized to ${size} while recording; the video changes resolution mid-stream` );
+                this._directSize = size;
+            }
+            return;
+        }
+
+        // Skip animation frames the encoder would never see.
+        const now = performance.now();
+        if ( !force ) {
+            const elapsed = now - this._lastFrameTime;
+            if ( elapsed < this._frameInterval ) return;
+            // Hold the cadence, but don't try to catch up after a long stall.
+            this._lastFrameTime = elapsed > this._frameInterval * 2
+                ? now
+                : this._lastFrameTime + this._frameInterval;
+        } else {
+            this._lastFrameTime = now;
+        }
+
         const ctx = this.ctx;
         const dest = this.canvas;
 
@@ -213,9 +279,15 @@ export class Recorder {
         const dx = ( dest.width - dw ) / 2;
         const dy = ( dest.height - dh ) / 2;
 
-        ctx.fillStyle = '#000';
-        ctx.fillRect( 0, 0, dest.width, dest.height );
+        // drawImage covers the whole canvas unless there are bars to clear.
+        if ( dx > 0.5 || dy > 0.5 ) {
+            ctx.fillStyle = '#000';
+            ctx.fillRect( 0, 0, dest.width, dest.height );
+        }
+
         ctx.drawImage( src, dx, dy, dw, dh );
+
+        if ( this._frameTrack ) this._frameTrack.requestFrame();
     }
 
     /**
@@ -244,6 +316,8 @@ export class Recorder {
 
         this._chunks = [];
         this._recorder = null;
+        this._frameTrack = null;
+        this._direct = false;
 
         if ( chunks.length === 0 ) {
             console.warn( 'No recording data to download' );

@@ -13,6 +13,8 @@ import { LevelsShader } from './levels.js';
 
 let camera, scene, renderer, controls, gridHelper, transformControl;
 let composer, levelsPass;
+// The post chain is only worth its cost when the levels actually change something
+let useComposer = false;
 
 let moveForward = false;
 let moveBackward = false;
@@ -27,10 +29,20 @@ const velocity = new THREE.Vector3();
 const direction = new THREE.Vector3();
 
 let recorder, countdownEl, recIndicatorEl, recTimeEl;
+let recTimeLabel = '';
 let palette;
 
 // Key under which viewer state is stored in the exported scene's extras
 const VIEWER_STATE_KEY = 'gltFpsViewer';
+
+// While a take is armed or running, render at the resolution the video is
+// actually encoded at instead of the display's full device pixel ratio. The
+// output resolution is unchanged — the frames were being scaled down to it
+// anyway — but far fewer pixels are drawn, and the capture can then read the
+// WebGL canvas directly instead of copying it. Set to false to always render at
+// full device resolution, at the cost of a lower captured frame rate.
+const MATCH_RENDER_SCALE_TO_CAPTURE = true;
+let currentPixelRatio = window.devicePixelRatio;
 
 let loadedModels = [];
 let selectedNode = null; // Currently selected node for scene graph navigation
@@ -66,6 +78,11 @@ function init() {
     // Post-processing: the levels pass runs last, after OutputPass has encoded
     // the frame to sRGB, so it adjusts display values rather than linear ones.
     composer = new EffectComposer( renderer );
+    // EffectComposer's default targets have no MSAA, which would drop the
+    // renderer's antialiasing whenever the post chain is in use. Set before the
+    // targets are first allocated so the samples take effect.
+    composer.renderTarget1.samples = 4;
+    composer.renderTarget2.samples = 4;
     composer.setPixelRatio( window.devicePixelRatio );
     composer.setSize( window.innerWidth, window.innerHeight );
     composer.addPass( new RenderPass( scene, camera ) );
@@ -85,7 +102,7 @@ function init() {
     recTimeEl = document.getElementById( 'rec-time' );
 
     recorder = new Recorder( renderer.domElement, {
-        onStateChange: updateRecorderHud
+        onStateChange: onRecorderStateChange
     } );
     updateRecorderHud( recorder.state );
 
@@ -423,6 +440,7 @@ function onWindowResize() {
     camera.updateProjectionMatrix();
     renderer.setSize( window.innerWidth, window.innerHeight );
     composer.setSize( window.innerWidth, window.innerHeight );
+    applyCaptureRenderScale();
 }
 
 function animate() {
@@ -455,12 +473,23 @@ function animate() {
 
     prevTime = time;
 
-    if ( selectionHelper ) selectionHelper.update();
+    // update() re-traverses the target's whole subtree, so skip it while the
+    // helper is hidden (which is exactly when capture is running).
+    if ( selectionHelper && selectionHelper.visible ) selectionHelper.update();
 
-    composer.render();
+    if ( useComposer ) composer.render();
+    else renderer.render( scene, camera );
 
     recorder.update();
-    if ( recorder.isRecording() ) recTimeEl.textContent = formatDuration( recorder.elapsedSeconds );
+
+    if ( recorder.isRecording() ) {
+        const elapsed = formatDuration( recorder.elapsedSeconds );
+        // Only touch the DOM when the displayed value actually changes
+        if ( elapsed !== recTimeLabel ) {
+            recTimeLabel = elapsed;
+            recTimeEl.textContent = elapsed;
+        }
+    }
 }
 
 
@@ -474,6 +503,11 @@ function setLevels( levels ) {
     levelsPass.uniforms[ 'blackPoint' ].value = levels.blackPoint;
     levelsPass.uniforms[ 'whitePoint' ].value = levels.whitePoint;
     levelsPass.uniforms[ 'gamma' ].value = levels.gamma;
+
+    // Neutral levels are a pass-through, so skip the composer entirely and draw
+    // straight to the canvas: two fewer full-screen passes per frame, no
+    // half-float buffers, and the renderer's own antialiasing is used.
+    useComposer = levels.blackPoint !== 0 || levels.whitePoint !== 1 || levels.gamma !== 1;
 }
 
 /**
@@ -491,6 +525,32 @@ function updateWidgetVisibility( locked = controls.isLocked ) {
     if ( selectionHelper ) selectionHelper.visible = showWidgets;
 }
 
+function onRecorderStateChange( state ) {
+    updateRecorderHud( state );
+    applyCaptureRenderScale();
+}
+
+/**
+ * Drop the render resolution to the capture bounds while a take is armed or
+ * running, and restore the display's own pixel ratio afterwards.
+ */
+function applyCaptureRenderScale() {
+    const capturing = MATCH_RENDER_SCALE_TO_CAPTURE && recorder && recorder.state !== 'idle';
+
+    const ratio = capturing
+        ? Math.min( window.devicePixelRatio,
+                    recorder.maxWidth / window.innerWidth,
+                    recorder.maxHeight / window.innerHeight )
+        : window.devicePixelRatio;
+
+    if ( ratio === currentPixelRatio ) return;
+    currentPixelRatio = ratio;
+
+    renderer.setPixelRatio( ratio );
+    composer.setPixelRatio( ratio );
+    composer.setSize( window.innerWidth, window.innerHeight );
+}
+
 function updateRecorderHud( state ) {
     const countingDown = state === 'countdown';
     const recording = state === 'recording';
@@ -499,7 +559,10 @@ function updateRecorderHud( state ) {
     recIndicatorEl.style.display = recording ? 'flex' : 'none';
 
     if ( countingDown ) countdownEl.textContent = recorder.countdownRemaining;
-    if ( recording ) recTimeEl.textContent = formatDuration( 0 );
+    if ( recording ) {
+        recTimeLabel = formatDuration( 0 );
+        recTimeEl.textContent = recTimeLabel;
+    }
 }
 
 function formatDuration( seconds ) {
