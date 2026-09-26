@@ -30,6 +30,8 @@ const direction = new THREE.Vector3();
 
 let recorder, countdownEl, recIndicatorEl, recTimeEl;
 let recTimeLabel = '';
+let flashEl;
+let photoRequested = false;
 let palette;
 
 // Key under which viewer state is stored in the exported scene's extras
@@ -100,6 +102,7 @@ function init() {
     countdownEl = document.getElementById( 'countdown' );
     recIndicatorEl = document.getElementById( 'rec-indicator' );
     recTimeEl = document.getElementById( 'rec-time' );
+    flashEl = document.getElementById( 'flash' );
 
     recorder = new Recorder( renderer.domElement, {
         onStateChange: onRecorderStateChange
@@ -190,10 +193,17 @@ function init() {
         // Let the panel's own controls handle their keys (arrows nudge sliders)
         if ( palette.contains( event.target ) && event.code !== 'KeyC' ) return;
 
-        // Space toggles recording in both flight and manipulation modes
+        // R toggles recording in both flight and manipulation modes
+        if ( event.code === 'KeyR' ) {
+            if ( !event.repeat ) recorder.toggle();
+            return;
+        }
+
+        // Space takes a photo in both modes. The canvas is only readable right
+        // after a render, so the capture itself happens in animate().
         if ( event.code === 'Space' ) {
             event.preventDefault();
-            if ( !event.repeat ) recorder.toggle();
+            if ( !event.repeat ) photoRequested = true;
             return;
         }
 
@@ -482,6 +492,11 @@ function animate() {
 
     recorder.update();
 
+    if ( photoRequested ) {
+        photoRequested = false;
+        takePhoto();
+    }
+
     if ( recorder.isRecording() ) {
         const elapsed = formatDuration( recorder.elapsedSeconds );
         // Only touch the DOM when the displayed value actually changes
@@ -563,6 +578,41 @@ function updateRecorderHud( state ) {
         recTimeLabel = formatDuration( 0 );
         recTimeEl.textContent = recTimeLabel;
     }
+}
+
+/**
+ * Save the frame that was just rendered as a PNG. Must run straight after the
+ * render: without `preserveDrawingBuffer` the canvas is only readable until the
+ * browser composites it. The flash is plain DOM laid over the canvas, so it
+ * never reaches the image (or a video being recorded at the same time).
+ */
+function takePhoto() {
+    const timestamp = new Date().toISOString().replace( /[:.]/g, '-' );
+
+    // toBlob copies the pixels synchronously; only the PNG encode is deferred
+    renderer.domElement.toBlob( ( blob ) => {
+        if ( !blob ) {
+            console.error( 'Failed to capture photo' );
+            return;
+        }
+        const filename = `photo_${timestamp}.png`;
+        downloadBlob( blob, filename );
+        console.log( `Downloaded: ${filename}` );
+    }, 'image/png' );
+
+    flashEl.animate( [ { opacity: 1 }, { opacity: 0 } ], { duration: 500, easing: 'ease-out' } );
+}
+
+function downloadBlob( blob, filename ) {
+    const url = URL.createObjectURL( blob );
+    const link = document.createElement( 'a' );
+    link.style.display = 'none';
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild( link );
+    link.click();
+    document.body.removeChild( link );
+    URL.revokeObjectURL( url );
 }
 
 function formatDuration( seconds ) {
@@ -744,16 +794,8 @@ function exportScene() {
         function ( gltf ) {
             showCamera();
             const blob = new Blob( [ gltf ], { type: 'application/octet-stream' } );
-            const url = URL.createObjectURL( blob );
-            const link = document.createElement( 'a' );
-            link.style.display = 'none';
-            link.href = url;
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            link.download = `scene_${timestamp}.glb`;
-            document.body.appendChild( link );
-            link.click();
-            document.body.removeChild( link );
-            URL.revokeObjectURL( url );
+            downloadBlob( blob, `scene_${timestamp}.glb` );
         },
         function ( error ) {
             showCamera();

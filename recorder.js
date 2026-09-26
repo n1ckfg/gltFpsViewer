@@ -73,7 +73,7 @@ export class Recorder {
     }
 
     /**
-     * Space bar handler: arm the countdown, cancel a running countdown, or stop
+     * Hotkey (R) handler: arm the countdown, cancel a running countdown, or stop
      * an in-progress recording.
      */
     toggle() {
