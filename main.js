@@ -487,15 +487,20 @@ function animate() {
     // helper is hidden (which is exactly when capture is running).
     if ( selectionHelper && selectionHelper.visible ) selectionHelper.update();
 
-    if ( useComposer ) composer.render();
-    else renderer.render( scene, camera );
-
-    recorder.update();
-
+    // A photo gets a frame of its own with the viewer chrome hidden. The normal
+    // render below then overwrites it, so the widgets never blink off on screen
+    // or in a video being recorded at the same time.
     if ( photoRequested ) {
         photoRequested = false;
+        updateWidgetVisibility( true );
+        renderFrame();
         takePhoto();
+        updateWidgetVisibility();
     }
+
+    renderFrame();
+
+    recorder.update();
 
     if ( recorder.isRecording() ) {
         const elapsed = formatDuration( recorder.elapsedSeconds );
@@ -507,6 +512,11 @@ function animate() {
     }
 }
 
+
+function renderFrame() {
+    if ( useComposer ) composer.render();
+    else renderer.render( scene, camera );
+}
 
 function setBackgroundColor( hex ) {
     const color = new THREE.Color( hex );
@@ -528,7 +538,8 @@ function setLevels( levels ) {
 /**
  * Viewer chrome — the grid, the transform gizmo and the selection bounding box
  * — is only shown alongside the menu. Flight mode gets an unobstructed view, so
- * nothing captured during it has widgets drawn over it. The recording HUD is
+ * nothing captured during it has widgets drawn over it; photos hide it in
+ * either mode by passing `locked = true` for their frame. The recording HUD is
  * deliberately exempt: it is the only signal that a take is running, and being
  * plain DOM it never reaches the captured video anyway.
  */
